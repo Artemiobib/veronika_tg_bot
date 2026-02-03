@@ -5,7 +5,7 @@ from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandle
 
 # ===== НАСТРОЙКИ =====
 BOT_TOKEN = os.environ["BOT_TOKEN"]  # токен берем из переменной окружения
-ADMIN_IDS = {1305284308}  # сюда можно добавить других админов
+ADMIN_IDS = {1305284308, 1166038087}  # сюда можно добавить других админов
 
 IMAGE_WELCOME = "1.jpg"
 IMAGE_MAP = "2.jpg"

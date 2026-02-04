@@ -138,4 +138,33 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ===== КАК НАЙТИ =====
     elif data == "how_to_find":
         if os.path.exists(IMAGE_MAP):
-            with open(I
+            with open(IMAGE_MAP, "rb") as img:
+                await query.message.reply_photo(photo=img)
+
+    # ===== СТАТИСТИКА =====
+    elif data == "stats" and user.id in ADMIN_IDS:
+        rows = sheet.get_all_values()[1:]
+
+        will_come = sum(1 for r in rows if len(r) > 3 and r[3] == "will_come")
+        wont_come = sum(1 for r in rows if len(r) > 3 and r[3] == "wont_come")
+
+        await query.message.reply_text(
+            f"📊 Статистика:\n\n"
+            f"Будут: {will_come}\n"
+            f"Не смогут: {wont_come}"
+        )
+
+
+# ===== ЗАПУСК =====
+def main():
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
+
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CallbackQueryHandler(buttons))
+
+    print("Бот запущен")
+    app.run_polling()
+
+
+if __name__ == "__main__":
+    main()

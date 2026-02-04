@@ -23,6 +23,7 @@ BOT_TOKEN = "8255308627:AAEbNn7mNntwXeGFfQe8dtn--0fSFZmyMcA"
 # админы через запятую
 ADMIN_IDS = {
     1305284308,
+    1166038087,
 }
 
 SPREADSHEET_NAME = "veronikabd"

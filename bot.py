@@ -113,7 +113,7 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard = [
             [InlineKeyboardButton("Как найти", callback_data="how_to_find")],
             [InlineKeyboardButton(
-                "Нужна помощь с подарком – держи готовый виш лист",
+                "Мой вишлист",
                 url="https://ohmywishes.com/users/bb65b864ce08b81198850083/lists/66698133393f39d745158759"
             )]
         ]

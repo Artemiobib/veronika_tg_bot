@@ -1,157 +1,125 @@
 import os
-import sqlite3
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes
+import json
+from datetime import datetime
+
+from telegram import (
+    Update,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup
+)
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    CallbackQueryHandler,
+    ContextTypes
+)
+
+import gspread
+from google.oauth2.service_account import Credentials
 
 # ===== НАСТРОЙКИ =====
-BOT_TOKEN = os.environ["BOT_TOKEN"]  # токен берем из переменной окружения
-ADMIN_IDS = {1305284308, 1166038087}  # сюда можно добавить других админов
+BOT_TOKEN = "8255308627:AAEbNn7mNntwXeGFfQe8dtn--0fSFZmyMcA"
 
-IMAGE_WELCOME = "1.jpg"
-IMAGE_MAP = "2.jpg"
-DB_FILE = "users.db"  # SQLite база
+# админы через запятую
+ADMIN_IDS = {
+    1305284308,
+}
 
-# ===== DATABASE =====
-def init_db():
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    # таблица участников
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY,
-            username TEXT,
-            will_come INTEGER
-        )
-    """)
-    conn.commit()
-    conn.close()
+SPREADSHEET_NAME = "veronikabd"
 
-def add_user(user_id, username, will_come_flag):
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute("SELECT id FROM users WHERE id = ?", (user_id,))
-    if c.fetchone() is None:
-        c.execute("INSERT INTO users (id, username, will_come) VALUES (?, ?, ?)",
-                  (user_id, username, will_come_flag))
-    conn.commit()
-    conn.close()
+# ===== GOOGLE SHEETS =====
+def get_sheet():
+    creds_info = json.loads(os.environ["GOOGLE_CREDS"])
+    creds = Credentials.from_service_account_info(
+        creds_info,
+        scopes=["https://www.googleapis.com/auth/spreadsheets"]
+    )
+    client = gspread.authorize(creds)
+    return client.open(SPREADSHEET_NAME).sheet1
 
-def user_exists(user_id, will_come_flag):
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute("SELECT id FROM users WHERE id = ? AND will_come = ?", (user_id, will_come_flag))
-    exists = c.fetchone() is not None
-    conn.close()
-    return exists
 
-def count_users():
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute("SELECT COUNT(*) FROM users WHERE will_come = 1")
-    will = c.fetchone()[0]
-    c.execute("SELECT COUNT(*) FROM users WHERE will_come = 0")
-    cant = c.fetchone()[0]
-    conn.close()
-    return will, cant
-
-# ===== HELPERS =====
-def is_admin(user_id: int) -> bool:
-    return user_id in ADMIN_IDS
-
-# ===== /start =====
+# ===== START =====
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
-        [
-            InlineKeyboardButton("Я обязательно буду", callback_data="will_come_btn"),
-            InlineKeyboardButton("Я не смогу присутствовать", callback_data="cant_come_btn"),
-        ]
+        [InlineKeyboardButton("Я обязательно буду", callback_data="will_come")],
+        [InlineKeyboardButton("Я не смогу присутствовать", callback_data="wont_come")]
     ]
-    if is_admin(update.effective_user.id):
-        keyboard.append([InlineKeyboardButton("Список участников", callback_data="show_list")])
+
+    if update.effective_user.id in ADMIN_IDS:
+        keyboard.append(
+            [InlineKeyboardButton("📊 Список участников", callback_data="stats")]
+        )
 
     await update.message.reply_text(
         "Пожалуйста, выберите вариант:",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
-# ===== CALLBACK =====
+
+# ===== КНОПКИ =====
 async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    user_id = query.from_user.id
-    username = query.from_user.username or query.from_user.full_name or str(user_id)
 
-    # --- Я обязательно буду ---
-    if query.data == "will_come_btn":
-        if user_exists(user_id, 1):
-            await query.message.reply_text("Вы уже записаны в список 'Я обязательно буду'.")
-            return
+    user = query.from_user
+    data = query.data
+    sheet = get_sheet()
 
-        add_user(user_id, username, 1)
+    # ===== ВЫБОР ПОЛЬЗОВАТЕЛЯ =====
+    if data in ("will_come", "wont_come"):
+        rows = sheet.get_all_values()[1:]  # без заголовка
+        row_index = None
 
-        if os.path.exists(IMAGE_WELCOME):
-            with open(IMAGE_WELCOME, "rb") as img:
-                await query.message.reply_photo(photo=img)
+        for i, row in enumerate(rows, start=2):
+            if row and row[0] == str(user.id):
+                row_index = i
+                break
+
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        if row_index:
+            sheet.update(
+                f"D{row_index}:E{row_index}",
+                [[data, now]]
+            )
+        else:
+            sheet.append_row([
+                user.id,
+                user.username or "",
+                user.full_name,
+                data,
+                now
+            ])
+
+        if data == "will_come":
+            await query.message.reply_text("🎉 Отлично! Мы вас ждём.")
+        else:
+            await query.message.reply_text(":(")
+
+    # ===== СТАТИСТИКА АДМИНА =====
+    elif data == "stats" and user.id in ADMIN_IDS:
+        rows = sheet.get_all_values()[1:]
+
+        will_come = sum(1 for r in rows if len(r) > 3 and r[3] == "will_come")
+        wont_come = sum(1 for r in rows if len(r) > 3 and r[3] == "wont_come")
 
         await query.message.reply_text(
-            """Дорогие гости!
-
-Пожалуйста, примите к сведению, что сменная обувь с чистой подошвой для
-выхода на лёд обязательна, без этого необходимого атрибута мы не сможем
-допустить вас к игре👟❗️
-Также недопустимо выходить на лёд в нетрезвом виде и брать еду и напитки с
-собой!🥤🍿
-
-Выполняя эти правила, вы помогаете нам сохранять отличное качество ледовой
-площадки, что обеспечивает вам хорошую игру и времяпровождение💙
-Просьба приезжать за 15-20 минут для заполнения анкет❄️
-
-Пожалуйста, передайте это сообщение всем игрокам вашей компании. Будем рады видеть вас в кёрлинг-центре "Дом со льдом"
-"""
+            f"📊 Статистика:\n\n"
+            f"Будут: {will_come}\n"
+            f"Не смогут: {wont_come}"
         )
 
-        keyboard = [
-            [InlineKeyboardButton("Как найти", callback_data="how_to_find")],
-            [InlineKeyboardButton(
-                "Мой вишлист",
-                url="https://ohmywishes.com/users/bb65b864ce08b81198850083/lists/66698133393f39d745158759"
-            )]
-        ]
-        await query.message.reply_text(
-            "Может быть полезно:",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
 
-    # --- Я не смогу присутствовать ---
-    elif query.data == "cant_come_btn":
-        if user_exists(user_id, 0):
-            await query.message.reply_text("Вы уже отметились как 'не смогу присутствовать'.")
-            return
-
-        add_user(user_id, username, 0)
-        await query.message.reply_text(":(")
-
-    # --- Как найти ---
-    elif query.data == "how_to_find":
-        if os.path.exists(IMAGE_MAP):
-            with open(IMAGE_MAP, "rb") as img:
-                await query.message.reply_photo(photo=img)
-
-    # --- Список участников (для админа) ---
-    elif query.data == "show_list":
-        if not is_admin(user_id):
-            return
-        will, cant = count_users()
-        await query.message.reply_text(f"Количество участников, которые придут: {will}\nКоличество участников, которые не придут: {cant}")
-
-# ===== MAIN =====
+# ===== ЗАПУСК =====
 def main():
-    init_db()
     app = ApplicationBuilder().token(BOT_TOKEN).build()
+
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(buttons))
+
     print("Бот запущен")
     app.run_polling()
+
 
 if __name__ == "__main__":
     main()

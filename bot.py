@@ -1,7 +1,8 @@
 import os
 import json
 from datetime import datetime
-import threading
+
+from flask import Flask, request
 
 from telegram import (
     Update,
@@ -17,8 +18,6 @@ from telegram.ext import (
 
 import gspread
 from google.oauth2.service_account import Credentials
-
-from flask import Flask
 
 
 # ===== НАСТРОЙКИ =====
@@ -49,6 +48,10 @@ def get_sheet():
     )
     client = gspread.authorize(creds)
     return client.open(SPREADSHEET_NAME).sheet1
+
+
+# ===== TELEGRAM APP =====
+application = ApplicationBuilder().token(BOT_TOKEN).build()
 
 
 # ===== /start =====
@@ -108,10 +111,8 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.message.reply_text(
                 """Дорогие гости!
 
-Пожалуйста, примите к сведению, что сменная обувь с чистой подошвой для
-выхода на лёд обязательна 👟❗️
-Также недопустимо выходить на лёд в нетрезвом виде и брать еду и напитки с
-собой 🥤🍿
+Пожалуйста, примите к сведению, что сменная обувь с чистой подошвой для выхода на лёд обязательна 👟❗️
+Также недопустимо выходить на лёд в нетрезвом виде и брать еду и напитки с собой 🥤🍿
 
 Просьба приезжать за 15–20 минут для заполнения анкет ❄️
 
@@ -148,29 +149,32 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 
-# ===== HTTP SERVER (Render Free) =====
-def run_web():
-    app = Flask(__name__)
-
-    @app.route("/")
-    def home():
-        return "Bot is running"
-
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port)
+application.add_handler(CommandHandler("start", start))
+application.add_handler(CallbackQueryHandler(buttons))
 
 
-# ===== ЗАПУСК =====
-def main():
-    threading.Thread(target=run_web, daemon=True).start()
+# ===== FLASK + WEBHOOK =====
+app = Flask(__name__)
 
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CallbackQueryHandler(buttons))
 
-    print("Бот запущен")
-    app.run_polling()
+@app.route("/")
+def home():
+    return "Bot is running"
+
+
+@app.route("/webhook", methods=["POST"])
+async def webhook():
+    update = Update.de_json(request.get_json(force=True), application.bot)
+    await application.process_update(update)
+    return "ok"
+
+
+def set_webhook():
+    url = os.environ["RENDER_EXTERNAL_URL"] + "/webhook"
+    application.bot.set_webhook(url)
 
 
 if __name__ == "__main__":
-    main()
+    set_webhook()
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)

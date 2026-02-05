@@ -40,13 +40,13 @@ def get_sheet():
     creds = Credentials.from_service_account_info(
         creds_info,
         scopes=[
-    "https://www.googleapis.com/auth/spreadsheets",
-    "https://www.googleapis.com/auth/drive"
-]
-
+            "https://www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/drive"
+        ]
     )
     client = gspread.authorize(creds)
     return client.open(SPREADSHEET_NAME).sheet1
+
 
 
 # ===== /start =====

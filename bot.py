@@ -1,6 +1,7 @@
 import os
 import json
 from datetime import datetime
+import threading
 
 from telegram import (
     Update,
@@ -17,13 +18,15 @@ from telegram.ext import (
 import gspread
 from google.oauth2.service_account import Credentials
 
+from flask import Flask
+
 
 # ===== НАСТРОЙКИ =====
 BOT_TOKEN = "8255308627:AAEbNn7mNntwXeGFfQe8dtn--0fSFZmyMcA"
 
 ADMIN_IDS = {
     1305284308,
-    1166038087, # добавляй других админов через запятую
+    1166038087,
 }
 
 SPREADSHEET_NAME = "veronikabd"
@@ -46,7 +49,6 @@ def get_sheet():
     )
     client = gspread.authorize(creds)
     return client.open(SPREADSHEET_NAME).sheet1
-
 
 
 # ===== /start =====
@@ -76,7 +78,6 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = query.data
     sheet = get_sheet()
 
-    # ===== ВЫБОР ПОЛЬЗОВАТЕЛЯ =====
     if data in ("will_come", "wont_come"):
         rows = sheet.get_all_values()[1:]
         row_index = None
@@ -99,7 +100,6 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 now
             ])
 
-        # ===== ЕСЛИ БУДЕТ =====
         if data == "will_come":
             if os.path.exists(IMAGE_WELCOME):
                 with open(IMAGE_WELCOME, "rb") as img:
@@ -109,43 +109,32 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 """Дорогие гости!
 
 Пожалуйста, примите к сведению, что сменная обувь с чистой подошвой для
-выхода на лёд обязательна, без этого необходимого атрибута мы не сможем
-допустить вас к игре👟❗️
+выхода на лёд обязательна 👟❗️
 Также недопустимо выходить на лёд в нетрезвом виде и брать еду и напитки с
-собой!🥤🍿
+собой 🥤🍿
 
-Выполняя эти правила, вы помогаете нам сохранять отличное качество ледовой
-площадки, что обеспечивает вам хорошую игру и времяпровождение💙
-Просьба приезжать за 15-20 минут для заполнения анкет❄️
+Просьба приезжать за 15–20 минут для заполнения анкет ❄️
 
-Пожалуйста, передайте это сообщение всем игрокам вашей компании.
 Будем рады видеть вас в кёрлинг-центре «Дом со льдом»"""
             )
 
             keyboard = [
                 [InlineKeyboardButton("📍 Как найти", callback_data="how_to_find")],
-                [InlineKeyboardButton(
-                    "🎁 Мой вишлист",
-                    url=WISH_LINK
-                )]
+                [InlineKeyboardButton("🎁 Мой вишлист", url=WISH_LINK)]
             ]
 
             await query.message.reply_text(
                 "Может быть полезно:",
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
-
-        # ===== ЕСЛИ НЕ СМОЖЕТ =====
         else:
             await query.message.reply_text(":(")
 
-    # ===== КАК НАЙТИ =====
     elif data == "how_to_find":
         if os.path.exists(IMAGE_MAP):
             with open(IMAGE_MAP, "rb") as img:
                 await query.message.reply_photo(photo=img)
 
-    # ===== СТАТИСТИКА =====
     elif data == "stats" and user.id in ADMIN_IDS:
         rows = sheet.get_all_values()[1:]
 
@@ -159,10 +148,23 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 
+# ===== HTTP SERVER (Render Free) =====
+def run_web():
+    app = Flask(__name__)
+
+    @app.route("/")
+    def home():
+        return "Bot is running"
+
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
+
+
 # ===== ЗАПУСК =====
 def main():
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
+    threading.Thread(target=run_web, daemon=True).start()
 
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(buttons))
 

@@ -1,6 +1,8 @@
 import os
 import json
+import asyncio
 from datetime import datetime
+from threading import Thread
 
 from flask import Flask, request
 
@@ -50,8 +52,9 @@ def get_sheet():
     return client.open(SPREADSHEET_NAME).sheet1
 
 
-# ===== TELEGRAM APP =====
+# ===== TELEGRAM =====
 application = ApplicationBuilder().token(BOT_TOKEN).build()
+event_loop = asyncio.new_event_loop()
 
 
 # ===== /start =====
@@ -111,12 +114,10 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.message.reply_text(
                 """Дорогие гости!
 
-Пожалуйста, примите к сведению, что сменная обувь с чистой подошвой для выхода на лёд обязательна 👟❗️
-Также недопустимо выходить на лёд в нетрезвом виде и брать еду и напитки с собой 🥤🍿
+Сменная обувь с чистой подошвой для выхода на лёд обязательна 👟❗️
+Просьба приезжать за 15–20 минут ❄️
 
-Просьба приезжать за 15–20 минут для заполнения анкет ❄️
-
-Будем рады видеть вас в кёрлинг-центре «Дом со льдом»"""
+Будем рады видеть вас в «Доме со льдом»"""
             )
 
             keyboard = [
@@ -138,14 +139,11 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif data == "stats" and user.id in ADMIN_IDS:
         rows = sheet.get_all_values()[1:]
-
         will_come = sum(1 for r in rows if len(r) > 3 and r[3] == "will_come")
         wont_come = sum(1 for r in rows if len(r) > 3 and r[3] == "wont_come")
 
         await query.message.reply_text(
-            f"📊 Статистика:\n\n"
-            f"Будут: {will_come}\n"
-            f"Не смогут: {wont_come}"
+            f"📊 Статистика:\n\nБудут: {will_come}\nНе смогут: {wont_come}"
         )
 
 
@@ -153,7 +151,7 @@ application.add_handler(CommandHandler("start", start))
 application.add_handler(CallbackQueryHandler(buttons))
 
 
-# ===== FLASK + WEBHOOK =====
+# ===== FLASK =====
 app = Flask(__name__)
 
 
@@ -163,18 +161,31 @@ def home():
 
 
 @app.route("/webhook", methods=["POST"])
-async def webhook():
+def webhook():
     update = Update.de_json(request.get_json(force=True), application.bot)
-    await application.process_update(update)
+    asyncio.run_coroutine_threadsafe(
+        application.process_update(update),
+        event_loop
+    )
     return "ok"
 
 
-def set_webhook():
-    url = os.environ["RENDER_EXTERNAL_URL"] + "/webhook"
-    application.bot.set_webhook(url)
+# ===== STARTUP =====
+async def async_startup():
+    await application.initialize()
+    await application.bot.set_webhook(
+        os.environ["RENDER_EXTERNAL_URL"] + "/webhook"
+    )
+    await application.start()
+
+
+def run_asyncio():
+    asyncio.set_event_loop(event_loop)
+    event_loop.run_until_complete(async_startup())
+    event_loop.run_forever()
 
 
 if __name__ == "__main__":
-    set_webhook()
+    Thread(target=run_asyncio, daemon=True).start()
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
